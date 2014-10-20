@@ -1,0 +1,24 @@
+# Download toolchain
+
+https://launchpad.net/gcc-arm-embedded
+
+
+# Setup your dev env
+- make sure you have 'gcc' and 'g++' installed (cmake checks)
+- install 'doxygen' if you want the doc generated (optional)
+- make sure 'PATH' is set properly e.g. in '~/.bashrc'
+  so that cmake finds the cross-compiler
+- make sure you belong to group 'dialout'
+  if you use 'minicom' or 'miniterm.py /dev/ttyUSB1 500000'
+
+# open m3
+mkdir build.m3 && cd build.m3
+cmake .. -DPLATFORM=iotlab-m3
+
+# open a8 (m3 node)
+mkdir build.a8 && cd build.a8
+cmake .. -DPLATFORM=iotlab-a8-m3
+
+# agile-fox (starter kit)
+mkdir build.fox && cd build.fox
+cmake .. -DPLATFORM=agile-fox

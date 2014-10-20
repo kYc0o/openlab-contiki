@@ -1,0 +1,5 @@
+if(${PLATFORM_HAS_ISL29020})
+    add_executable(m3_open_node_low_power m3_open_node_low_power)
+    target_link_libraries(m3_open_node_low_power platform)
+endif(${PLATFORM_HAS_ISL29020})
+

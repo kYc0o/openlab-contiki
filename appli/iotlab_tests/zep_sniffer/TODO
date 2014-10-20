@@ -1,0 +1,6 @@
+* review README
+* Use control_node to get current time instead of python script
+* Integrate zep code into control_node too
+
+* In phy_rf2xx timestamp sending packets
+

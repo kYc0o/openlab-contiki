@@ -1,0 +1,9 @@
+Some explanation about the directories
+
+    control_node is current working version
+        The main feature here is asynchronous reception/transmission and a layered code architecture.
+
+    controlnode_clement version developped by HiKoB Clement with layered code architecture and async serial
+    control_node_fabien_old old version developped by fabien, temporary kept for backup.
+
+It depends on autotest_common

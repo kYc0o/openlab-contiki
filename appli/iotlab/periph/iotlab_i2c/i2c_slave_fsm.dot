@@ -1,0 +1,77 @@
+// Generate pdf:
+// dot i2c_slave_fsm.dot -T pdf -O
+
+digraph finite_state_machine {
+	rankdir=LR;
+	size="8,5"
+
+	node [shape = doublecircle];
+    Idle;
+    RXHeader GetPayloadRX WaitRXStop;
+    WaitRXStopType WaitTXStart WaitTXDone WaitTXStop;
+
+	node [shape = circle];
+    Error [shape = circle];
+    TransactionFinished;
+
+    /*
+     * Start transaction
+     */
+	Idle -> SaveTimestamp [ label = "EV_RX_START" ];
+	// Idle -> Error [ label = "default" constraint = False style=dotted];
+	Idle -> Error [ label = "EV_TX_BYTE:\nsend 'ERR'" ];
+	SaveTimestamp -> RXHeader;
+
+    RXHeader -> DecodeType [ label = "EV_RX_BYTE" ];
+    // RXHeader -> Error [ label = "default" constraint = False style=dotted];
+
+    /*
+     * Decode command type
+     */
+    DecodeType -> GetPayloadRX [ label = "cmd_type_tx"];
+    DecodeType -> WaitTXStart [ label = "cmd_type_rx"];
+    // DecodeType -> Error [ label = "unkown_command" constraint = False style=dotted];
+
+
+    /*
+     * Open node sends data
+     */
+    GetPayloadRX -> WaitRXStop [ label = "payload_complete"];
+    GetPayloadRX -> GetPayloadRX [ label = "EV_RX_BYTE"];
+    // GetPayloadRX -> Error [ label = "default" constraint = False style=dotted];
+    WaitRXStop -> HandleRXData [ label = "EV_RX_STOP" ];
+    // WaitRXStop -> Error [ label = "default" constraint = False style=dotted];
+
+
+    HandleRXData [ label="HandleRXData\nCall correct handler"];
+    HandleRXData -> TransactionFinished;
+    TransactionFinished -> Idle;
+
+    /*
+     * Open node wants to receive data
+     */
+    HandleTXData [ label="HandleTXData\nCall correct handler\nto get data buff"];
+    WaitTXStart -> HandleTXData [label = "EV_TX_START"];
+    // WaitTXStart -> Error [ label = "default" constraint = False style=dotted];
+
+    HandleTXData -> WaitTXDone;
+    WaitTXDone -> WaitTXDone [label = "EV_TX_BYTE"];
+    WaitTXDone -> WaitTXStop [label = "payload_complete"];
+    //WaitTXDone -> Error [ label = "default" constraint = False style=dotted];
+
+    WaitTXStop -> TransactionFinished [label = "EV_TX_STOP"];
+    // WaitTXStop -> Error [ label = "default" constraint = False style=dotted];
+
+    TransactionFinished -> Idle;
+
+
+
+
+
+    /* Error goes back to idle */
+    Error -> Idle;
+
+
+    Invisible [ style="invisible"];
+    Error -> Invisible [label = "unexpected_event", dir=back];
+}

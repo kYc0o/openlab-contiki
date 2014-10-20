@@ -1,0 +1,2 @@
+add_executable(test_serial_flood serial_flood)
+target_link_libraries(test_serial_flood platform)

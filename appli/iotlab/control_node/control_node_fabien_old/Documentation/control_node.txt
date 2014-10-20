@@ -1,0 +1,375 @@
+***************************************************************
+*ANALYSE DU CODE CONTROL NODE DE LA PLATFORME SENSLAB, MCU MSP*
+***************************************************************
+
+-------------------------------------------------------
+code gateway : soft/Senslab-GW-EM
+	=> 2 sockets vers serveur
+	=> 1 liaison série vers contrôle node
+code control node : fit-eco/software/aplli/control_node
+	=> liaison série vers gateway
+-------------------------------------------------------
+
+Le code du nœud de contrôle est en attente de réception d'une frame par la liaison série.
+De cette frame, ce code
+	la décode
+	exécute la commande qu'elle contient
+	envoie une frame de réponse d'acquitement + d'éventuelles données demandées
+	envoie dans le cas de frame de polling à la période indiquée , une frame d'agrégat de mesures
+
+Protocole de réception de commande du control node
+---------------------------------------------------
+---------------------------------------------------
+	Frame recue par le control node
+	-------------------------------
+La commande est reçu par une frame du type suivant:
+typedef union {
+	struct {
+		uint8_t sync;
+		uint8_t len;
+		uint8_t type;
+		uint8_t payload[FRAME_LENGTH_MAX - 1];
+	};
+	uint8_t data[FRAME_LENGTH_MAX + 2];
+} xRXFrame_t;
+FRAME_LENGTH_MAX=33
+Dimension de xRXFrame_t : FRAME_LENGTH_MAX + 2=35 octets dont 32 pour la payload. Pas d'explication du pourquoi de ce chiffre, au maximum 12/35 dans le cas de la commande CONFIG_CC1100.
+
+La frame est reçue par le port série, constituée character par charcaracter par vCharHandler_irq(uint8_t c), qui une fois la frame complète en référence à len, l'envoie dans la queue de réception xMainEventQ. vMainTask exécutera le traitement de la frame vParseFrame() et fournira la réponse par une frame de réponse vSendFrame.
+Il y a toujours une frame en réponse qui sert d'accusé de réception et de réponse. Néanmoins dans le cas d'une requête de polling, d'autres frames en réponse seront générées suivant la période demandée.
+
+Description de cette frame xRXFrame_t :
+		octet 0 : 1 octet de synchronisation de valeur 0x80
+					la frame n'est pas traitée en son absence
+		octet 1 : 1 octet indiquant la longeur en octets des données de la frame qui suivent cet octet 1
+					si cette octet vaut plus que FRAME_LENGTH_MAX, la frame n'est pas traitée
+		octet 2 : indiquant la commande à exécuter par NC
+Dans le sens, gw->NC, il n'y a pas de message avec un nombre d'octets important.
+Voici les possibilités décrites dans control.c côté gateway et dans mainTask.c côté NC fonction vParseFrame() pour senslab :
+	 PING => non disponible
+		nombre d'octets en paramètres=0, cette fonction n'est pas codée côté NC mais la fonction existe dans control.c côté gateway
+	 OPENNODE_STARTBATTERY
+		nombre d'octets en paramètres=0
+	 OPENNODE_START
+		nombre d'octets en paramètres=0
+	 OPENNODE_STOP
+		nombre d'octets en paramètres=0
+	 GET_TEMPERATURE
+		nombre d'octets en paramètres=0
+	 GET_LUMINOSITY
+		nombre d'octets en paramètres=0
+	 GET_RSSI
+		nombre d'octets en paramètres=0
+	 GET_BATTERY_VOLTAGE
+		nombre d'octets en paramètres=0
+	 GET_BATTERY_CURRENT
+		nombre d'octets en paramètres=0
+	 GET_BATTERY_POWER
+		nombre d'octets en paramètres=0
+	 GET_DC_VOLTAGE
+		nombre d'octets en paramètres=0
+	 GET_DC_CURRENT
+		nombre d'octets en paramètres=0
+	 GET_DC_POWER
+		nombre d'octets en paramètres=0
+	 GET_DIFF_CURRENT
+		nombre d'octets en paramètres=0
+	 GET_DIFF_POWER
+		nombre d'octets en paramètres=0
+	 SET_TIME
+		nombre d'octets en paramètres=4
+	 SET_DAC0
+		nombre d'octets en paramètres=2
+	 SET_DAC1
+		nombre d'octets en paramètres=2
+	 CONFIG_CC1100
+		nombre d'octets en paramètres=9
+	 CONFIG_CC2420
+		nombre d'octets en paramètres=3
+	 CONFIG_POWERPOLL
+		nombre d'octets en paramètres=5
+	 CONFIG_SENSORPOLL
+		nombre d'octets en paramètres=3
+	 CONFIG_RADIOPOLL
+		nombre d'octets en paramètres=2
+	 CONFIG_RADIONOISE
+		nombre d'octets en paramètres=1
+		octet 3 et suivant : payload sont les paramètres de la commande à exécuter, d'aucun à 8 comme précisé ci-dessus 
+
+	2 types de frames de réponse :
+	------------------------------
+		polling type frame :
+		++++++++++++++++++++
+typedef struct {
+	union {
+		struct {
+			uint8_t sync, len, type, sensors, count, period[2], starttime[4],
+					measures[POLLING_MEASURE_MAX][2];
+		};
+		uint8_t data[2 * POLLING_MEASURE_MAX + 11];
+	};
+	int index;
+} xPollingFrame_t;
+POLLING_MEASURE_MAX=123
+dimension xPollingFrame_t : 2*123+11+4(sur STM32, 2 sur 16bits)=261
+Le nombre de mesures maximales par frame dépend dans le cas 
+	des capteurs si la requête est pour que température, que luminosity ou les 2
+	de la consommation si la requête est pour la tension, le courant, la consommation ou une combinaison des 3
+
+Description :
+		octet 0 : 1 octet de synchronisation de valeur 0x80
+		octet 1 : 1 octet indiquant le nombre d'octets qui compose la frame - 2 = au nombre d'octets de la frame suivant celui-ci.
+					Soit 9 + frame->index * 2 => 9 et pas 11 certainement car lors de l'appel pour l'envoie de la frame il y a +2 : vSendFrame(xPollingFrame.data, xPollingFrame.len + 2). Donc en fait c'est bien 11 + frame->index * 2
+		octet 2 : type, celui d'une polling frame indiquée par la valeur 0xff
+		octet 3 : sensors, indique le ou les capteurs sur lequels porte la requête
+					pour la commande CONFIG_SENSORPOLL soit Temperature soit Luminosity ou les 2
+					pour CONFIG_POWERPOLL soit tension, courant, consommation ou une combinaison de ces 3 mesures
+					pour CONFIG_RADIOPOLL le RSSI
+				RSSI_BIT = 0,
+				TEMPERATURE_BIT = 1,
+				LUMINOSITY_BIT = 2,
+				VOLTAGE_BIT = 3,
+				CURRENT_BIT = 4,
+				POWER_BIT = 5
+		octet 4 : count, utilisé pour agrégé dans une frame 
+			pour les mesures de capteurs, jusqu'à xSensorCountMax mesures avant d'envoyer la frame (fonction vSensorPollingTask())
+		octet 5-6 : period[2], rappel la valeur configurée dans mainTask.c par vParseFrame() qui appelle
+						pour les mesures de capteurs, set_sensor_polling_period(value), cas CONFIG_SENSORPOLL
+						pour les mesures de consommation, set_power_polling_period(value), cas CONFIG_POWERPOLL
+						pour la radio, set_radio_polling(value), cas CONFIG_RADIOPOLL
+						cette valeur est la fréquence des mesures demandées telle qu'elle était indiqué dans le paquet RX de commande
+		octet 7-10 : starttime[4], tag du temps spécifique à une frame
+						la commande SET_TIME définie par ses paramètres sur 16 bits un temps myTime auquel s'ajoute un offset sur 16 bits
+						vApendData(), tag la frame avec myTime (starttime[0] et starttime[1]) et dans les 2 octets suivant avec la valeur du timer B, avant d'ajouter dans la frame la nouvelle mesure 16 bits
+		octets 11-?? : mesures utilisant 2 * POLLING_MEASURE_MAX octets
+		2/4 derniers octets : index, index utilisé pour passer d'une mesure à une autre dans le tableau measures[POLLING_MEASURE_MAX][2], 2 car 2 octets par mesures
+
+Il y a 3 polling frame possible pour chaque type de mesures parmis capteurs, consommation et radio, xSensorFrame, xPowerFrame, xRadioFrame.
+
+		response frame : 
+		++++++++++++++++
+typedef union {
+	struct {
+		uint8_t sync;
+		uint8_t len;
+		uint8_t type;
+		uint8_t ack;
+		uint8_t payload[FRAME_LENGTH_MAX - 2];
+	};
+	uint8_t data[FRAME_LENGTH_MAX + 2];
+} xTXFrame_t;
+FRAME_LENGTH_MAX=33
+dimension xTXFrame_t : 35
+
+réponse du NC à la requête de la gw, typiquement un ACK ou quelques octets en réponse à une lecture de capteur
+		octet 0 : 1 octet de synchronisation de valeur 0x80
+		octet 1 : 1 octet indiquant le nombre d'octets qui compose la frame - 2 = au nombre d'octets de la frame suivant celui-ci. Par défaut la longeur vaut 2 car il y a forcément le type et l'ack dans la frame aprés l'octet len. La frame une fois préparée à envoyer est de dimension xTxFrame.len + 2 ou encore soit bien longeur de payload + 4.
+		octet 2 : type, le type est celui de la frame dont celle-ci est la réponse
+		octet 3 : ack, indique un acknowledge ; si c'est un nonacknowledge la frame  n'est pas envoyé
+		octet 4 et plus : les données en retour qui vont de rien à 2 octets pour la valeur d'une mesure.
+
+Dans le cas d'une commande demandant une mesure, par exemple GET_RSSI, il n'y a pas d'indication temporelle de l'instant de la mesure.
+
+Les tâches
+----------
+----------
+Le fichier principal main.c crée les 3 tâches suivantes avec leurs priorités en paramètres.
+	mainTask_create(3); crée vMainTask
+	pollingTask_create(2); crée vPowerPollingTask, vSensorPollingTask, vRadioPollingTask
+	radioTask_create(1); crée vRadioTask
+
+vmainTask dans mainTask.c est la tâche de plus haute priorité, c'est principalement une boucle infinie.
+Cette tâche est suspendue, en attente d'un événement de réception RX, émission TX vers la gateway dans la queue xMainEventQ.
+
+vPowerPollingTask, vSensorPollingTask, vRadioPollingTask dans pollingTask.c gérent respectivement, pour les commandes liées à la consommation CONFIG_POWERPOLL, aux capteurs CONFIG_SENSORPOLL, à la radio CONFIG_RADIOPOLL :
+	l'agrégation de données collectées à une fréquence précise pour chacune de ces tâches dans une frame
+	l'envoie de cette frame lorsque le tampon utilisé est rempli
+Ces 3 taches sont de même priorité.
+
+vRadioTask dans radioTask13.c ou radioTask14.c est la tâche de plus basse priorité et gère les commandes liées à la radio. Ces commandes sont GET_RSSI et CONFIG_RADIONOISE. Son mode de fonctionnement est similaire à vmainTask : tâche suspendue, en attente d'un événement, dans la queue xRadioEventQ.
+GET_RSSI se décline en événement EVENT_GETRSSI dans vRadioTask et CONFIG_RADIONOISE suivant les paramètres en EVENT_STARTNOISE ou EVENT_STOPNOISE. Ceci s'effectue par l'appel d'une fonction de radioTask13.c par vmainTask qui se bloque sur l'attente du sémaphore xDataReadySem. C'est une différence de fonctionnement avec vmainTask.
+Ce blocage doit permettre à vRadioTask de s'executer et à la fin de son traitement de libérer xDataReadySem. Ainsi la fonction appelée par vmainTask s'achève et le paquet TX en préparation pour l'acquitement + donnée éventuelle peut être envoyé en réponse à la gateway.
+Une différence avec vmainTask, est la libération d'un sémaphore xSemaphoreGive(xDataReadySem). xDataReadySem 
+
+Ci-dessous une description plus détaillée des tâches de polling.
+
+	vPowerPollingTask
+	-----------------
+Cette tâche procède tout d'abord à des initialisations et prend les 2 sémaphores xPowerSem, xPowerDelaySem.
+Ensuite elle procéde en une boucle infinie qui est supendue tout d'abord dans l'attente de prendre xPowerSem puis ensuite dans l'attente de prendre xPowerDelaySem.
+
+Elle ne sera débloquée que par la réception de la commande CONFIG_POWERPOLL qui exécutera :
+
+	set_power_polling_sensors(uint8_t voltage, uint8_t current, uint8_t power) pour déterminer qu'elles sont les mesures à effectuer
+
+	set_power_polling_period(uint16_t period) pour configurer la période à laquelle seront effectuées les mesures, armer le timer B avec cette période ou période max, et aussi débloquer vPowerPollingTask ou la bloquer si period=0.
+		pour lancer le polling la fonction finie par xSemaphoreGive(xPowerSem) qui débloque la 1ere attente de vPowerPollingTask. Ensuite c'est la routine de call back d'interuption du timer B, uPowerPollTime(), qui fait xSemaphoreGiveFromISR(xPowerDelaySem, &higherPriority) et dans le cas où cela débloque un processus de priorité plus élevé, procéde à un changement de contexte.
+			le drapeau xPowerPolling est mis. Ce drapeau conditionne xSemaphoreGive(xPowerSem) dans vPowerPollingTask. Autrement dit cela assure le non blocage de vPowerPollingTask sur xPowerSem lors du retour au début de sa boucle infinie. On veut en effet continuer le polling tant qu'il n'y a pas de configuration de la période à 0.
+				La procédure d'arrêt du polling est :
+					timerB_unset_alarm(POWERPOLL_ALARM); // arrêt du timer B et donc plus de xPowerDelaySem disponible => plusde traitement dans la boucle principale de vPowerPollingTask
+					xSemaphoreTake(xPowerSem, 0); // prend xPowerSem s'il est disponible et évite ainsi un éventuel blocage lors d'une prochaine requête de polling car un sémaphore doit être pris pour pouvoir être libéré
+					xPowerPolling = 0; // empêche un éventuel xSemaphoreGive(xPowerSem) dans la boucle principale au cas où un changement de contexte soit intervenue au cours de l'éxecution de la partie active de la boucle principale
+
+	vSensorPollingTask
+	------------------
+L'architecture est quasiment identique à celle de vPowerPollingTask.
+	set_sensor_polling_sensors correspond à set_power_polling_sensors
+	set_sensor_polling_period correspond à set_power_polling_period
+	xSensorSem correspond à xPowerSem
+	xSensorPolling correspond à xPowerPolling
+
+En revanche il n'y a pas d'équivalent à xPowerDelaySem. Ici la période d'échantillonages des mesures est déterminé par :
+	vTaskDelayUntil(&xSensorPreviousWakeTime, xSensorWakePeriod)
+Cette période s'exprime alors directement par un nombre de tick de la référence temporelle de l'ordonnaceur de freeRTOS.
+
+Pourquoi cette différence ? Peut-être n'y avait-il pas d'autres timers disponibles sur senslab ?
+
+	vRadioPollingTask
+	------------------
+Ici seule la mesure du rssi peut être récupérée.
+
+L'architecture de set_radio_polling est similaire à celle de set_power_polling_period avec l'utilisation de vTaskDelayUntil ; mais aussi l'utilisation d'un drapeau xRadioPolling et d'un sémaphore xRadioSem est similaire dans ces fonctions.
+En revanche leur utilisation dans vRadioPollingTask diffère.
+
+La mesure dans la boucle infinie de vRadioPollingTask est conditionnée non plus par le sémaphore mais par le drapeau
+	if (xRadioPolling) {
+		...
+	} 
+	else {
+			xSemaphoreTake(xRadioSem, portMAX_DELAY);
+	}
+Le sémaphore xRadioSem ne semble plus ici être utilisé que pour mettre vRadioPollingTask en attente dans le cas où aucun polling n'est demandé. Son utilisation dans set_radio_polling aurait pu être simplifiée et apparait plus comme du copier coller. 
+
+Communication entre les taches
+------------------------------
+------------------------------
+	Les queues
+	----------
+		mainTask.c
+		//////////
+xMainEventQ = xQueueCreate(5, sizeof(uint16_t)); void mainTask_create(uint16_t priority)
+	=> 2 événements possibles sont mis dans cette queue, EVENT_FRAME_RX et EVENT_FRAME_TX gérés dans vMainTask
+			EVENT_FRAME_RX indique qu'une frame et reçue et qu'il faut la traiter
+			EVENT_FRAME_TX indique qu'une polling frame est prête à envoyer
+
+xFrameQ = xQueueCreate(2, sizeof(xPollingFrame_t)); void mainTask_create(uint16_t priority)
+	=> cette queue reçoit une polling frame quand celle-ci est prête à être envoyée
+
+Mise en queue dans ce fichier :
+xQueueSendToBack(xFrameQ, frame, 0); void vSendPollingFrame(void *frame)
+xQueueSendToBack( xMainEventQ, &event, 0); void vSendPollingFrame(void *frame)
+xQueueSendToBackFromISR( xMainEventQ, &event, &higherPriority); static void vCharHandler_irq(uint8_t c)
+
+L'appel vSendPollingFrame(frame); se produit notamment dans pollingTask.c, static void vSendFrame(xPollingFrame_t *frame).
+Attention il y a plusieurs fonction vSendFrame,
+static void vSendFrame(xPollingFrame_t *frame) dans pollingTask.c => qui appelle vSendPollingFrame(frame) pour envoie dans la queue
+static void vSendFrame(uint8_t* data, int16_t len) dans mainTask.c => envoie sur le port série
+
+		radioTask13.c
+		/////////////
+xRadioEventQ = xQueueCreate(1, sizeof(int));
+	=> 3 événements possibles sont mis dans cette queue
+		EVENT_GETRSSI par la fonction int radio_getrssi(uint8_t * data) accédée depuis l'extérieur du fichier
+		EVENT_STARTNOISE par la fonction int radio_setnoise(uint16_t on) accédée depuis l'extérieur du fichier
+		EVENT_STOPNOISE par la fonction int radio_setnoise(uint16_t on) accédée depuis l'extérieur du fichier
+Ces fonctions appellées depuis le décodage de la commande, static void vParseFrame() dans mainTask.c, attende un sémaphore, xDataReadySem, une fois la création de l'un de ces évènements. C'est un sémaphore pour la synchronisation de données prêtes.
+La tâche, static void vRadioTask(void* pvParameters), décode ces événements et lance l'exécution correspondante, get_rssi();, start_noise();, stop_noise();, puis débloque ce sémaphore.
+
+	Les sémaphores
+	--------------
+		pollingTask.c
+		/////////////
+Comme décrit dans les tâches, une commande décodée par vmainTask, peut entre autre exécuter une fonction du fichier pollingTask.c.
+Cette fonction débloquera la tache de polling de traitement par sémaphore. Ces tâches sont vPowerPollingTask, vSensorPollingTask, vRadioPollingTask. Voir la section tâches pour plus de précision sur le mécanisme.
+
+Remarques
+---------
+---------
+La plupart de ces remarques sont reprises du texte ci-desssus.
+* Longueur des données des mesures, le code gagnerait en clareté si le +2 lors d'appel de fonction, le +2 par défaut en len serait directement inclus dans len. Voir dans §polling type frame, description de l'octet 1.
+* set_power_polling_period() et set_power_polling_sensors() ne sont appelées que par vParseFrame dans le cas CONFIG_POWERPOLL.
+Ces deux fonctions effectuent le même calcul pour déterminer xPowerCountMax. Le code n'est pas factorisé mais surtout le calcul est effectué 2 fois même 4 fois en cas d'un dépassement avec des multiplications et divisions.
+=> optimisation possible soit par une variable static, soit en fusionnant les 2 fonctions
+=> même chose entre set_sensor_polling_sensors et set_sensor_polling_period
+* En cas de mauvaise donnée de configuration de la période, celle-ci est tronquée, approximée sans que l'utilisateur en soit informé. Un message d'erreur pourrait être une autre approche.
+* Le sémaphore xRadioSem ne semble plus être utilisé que pour mettre vRadioPollingTask en attente dans le cas où aucun polling n'est demandé. Son utilisation dans set_radio_polling aurait pu être simplifiée et apparait plus comme du copier coller. 
+* Sur le MCU MSP430 le registre, Timer_B counter, se nomme en abrégé TBR et cette abréviation est utilisée dans le code.
+* Dans le cas d'une commande demandant une mesure, par exemple GET_RSSI, il n'y a pas d'indication temporelle de l'instant de la mesure.
+* Le timer B est configuré inconditionnellement par une commande GET_RSSI et CONFIG_POWERPOLL. Cela signifie donc des limations, notamment un CONFIG_POWERPOLL suivie d'un GET_RSSI modifiera la période d'échantillonage du polling.
+
+
+****************************************************************************************************************
+*Analyse du fonctionnement d'une requête de l'experiment handler à une gateway en direction du nœud de contrôle*
+****************************************************************************************************************
+
+Les sources de l'émeteur, donc le mcu de la gateway sur senslab vers le nœud de contrôle indiquent le fonctionnement suivant :
+- un thread qui gére la réception/émission de paquets vers le serveur=experiment handler
+	=> fichier gateway.c
+		/** The thread function */
+		static void gateway_entry(ULONG initial_input)
+	=> gestion d'un paquet reçu, analyse, préparation d'une réponse au experiment handler et de l'envoie par liaison série au nœud de contrôle(NC) de la commande
+			=> appel de handle_frame(&frame, frame_len), avec la frame reçue de la socket
+			=> handle appel une fonction qui gére la requête au NC et retourne le résultat de la transaction, réponse à la requête au besoin
+					cette fonction fait partie du fichier control.c, par exemple, ctrlnode_set_alim
+
+
+- un thread qui gére la réception/émission de paquets vers le nœud de contrôle
+fichier control.c :
+** The thread function */
+static void control_entry(ULONG initial_input) {
+...
+	    // Check if there is a command, and the UART mutex is gotten
+	    if (command_to_send && mutex_gotten) {
+	    	char header[2];
+	    	// Prepare header
+			header[0] = SYNC_BYTE;
+			header[1] = command_len;
+			// Write header and command
+	    	write(serial_control, header, 2);
+	    	write(serial_control, command_frame, command_len);
+	    	command_to_send = 0;
+	    }
+Le drapeau command_to_send est mis par la fonction, static int send_receive(void), elle-même appelée par la fonction (par ex ctrlnode_set_alim) qui est appelée dans la fonction handle du fichier gateway.c
+command_to_send, sert de variable de communication entre les 2 threads
+
+En résumé pour la transmission d'une requête de l'experiment handler au NC :
+lecture socket par le thread control_entry
+	=> handle
+		=> fonction de préparation frame pour le NC (ex  ctrlnode_set_alim)
+			command_frame[0] = OPENNODE_START
+					...
+				command_len = 1;
+				ret = send_receive();
+			=>send_receive()
+				command_to_send = 1;
+			retourne ACK si send_receive() ok
+envoie de la requête à NC par le thread control_entry + récupération de la frame de retour (NC -> gw) si besoin est.
+
+
+static int send_receive(void) {
+	int ret;
+
+	// Get the semaphore until count is zero
+	while (tx_semaphore_get(&response_semaphore, TX_NO_WAIT) == 
+		TX_SUCCESS) {
+		;
+	}
+	
+	// Set the command ready flag
+	command_to_send = 1;
+	
+	// Wait for a response, 1s max
+	ret = tx_semaphore_get(&response_semaphore, 100);
+
+	if (ret == TX_SUCCESS) {
+		// A frame has been received, return OK
+		return 0;
+	} else if (ret == TX_NO_INSTANCE) {
+		logger_error("Control send_receive: response_semaphore timeout");
+	} else {
+		logger_error("Control send_receive: response_semaphore error");
+	}
+	// Return error
+	return -1;
+}
+	
