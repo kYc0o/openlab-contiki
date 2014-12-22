@@ -20,4 +20,11 @@ SECTIONS
     *(.rodata.*)
     . = ALIGN(4);
   }
+  
+  .bss :
+  {
+    . = ALIGN(4);
+    *(.bss.*)
+    . = ALIGN(4);
+  }
 }
