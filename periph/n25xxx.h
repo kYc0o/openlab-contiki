@@ -38,7 +38,15 @@
 #include <stdint.h>
 
 uint8_t n25xxx_read_status(void);
+
+/*
+ * Writes and/or reads a single byte
+ */
 uint8_t n25xxx_rw_byte(uint8_t byte);
+
+/*
+ * exposing CS functions
+ */
 void n25xxx_cs_clear(void);
 void n25xxx_cs_set(void);
 
