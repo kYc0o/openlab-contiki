@@ -1,0 +1,10 @@
+/build*
+cscope.*
+.cproject
+.project
+*.swp
+*~
+*.swn
+*.swo
+*.*#
+*build*

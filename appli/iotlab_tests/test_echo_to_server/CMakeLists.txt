@@ -1,0 +1,2 @@
+add_executable(test_echo_to_server main)
+target_link_libraries(test_echo_to_server platform)

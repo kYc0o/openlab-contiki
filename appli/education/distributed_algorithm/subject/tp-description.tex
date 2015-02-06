@@ -1,0 +1,346 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,bbm, url,color}
+
+\addtolength{\textwidth}{2cm}
+\addtolength{\hoffset}{-1cm}
+\addtolength{\textheight}{2cm}
+\addtolength{\voffset}{-1cm}
+
+\newcommand{\mc}{\mathcal}
+\DeclareMathOperator*{\argmax}{arg \, max}
+
+
+\begin{document}
+\title{
+{\normalsize TP (i.e., applications lab) for the class:}\\[-1mm]
+Distributed Algorithms and Network Systems\\[-2mm]
+{\normalsize MiSCIT Master -- Grenoble -- fall 2014}\\[-1mm]
+{\normalsize prepared by Federica Garin and Ga\"{e}tan Harter}}
+\date{}
+\maketitle
+
+\vspace{-2cm}
+\section{FIT/IoT-lab}
+You will be using the experimental platform FIT/IoT-lab (\url{https://www.iot-lab.info}).
+What is it? Read the answer here: \url{https://www.iot-lab.info/what-is-iot-lab/}.\\
+
+To familiarize yourself with the use of the platform, go to the page of tutorials:
+\begin{center} \url{https://www.iot-lab.info/tutorials/} \end{center}
+and do the following tutorials (First steps):
+\begin{itemize}
+\item Configure your SSH access;
+\item Submit an experiment with Web portal: M3 nodes;
+\item Get and compile a firmware code for a M3 node.
+
+% TODO Replace this part by a tutorial that explains how to do it
+\item Configure the authentication for server tools\\
+    Open a terminal, run the following command and type your password
+\begin{verbatim}ssh -t <username>@grenoble.iot-lab.info "auth-cli --user \$USER"
+Password:
+Retype password:
+"Written"
+\end{verbatim}
+\end{itemize}
+
+
+
+\section{Practical implementation details}
+
+You are given an already-written firmware that allows you to interact with the nodes, and which has two modes, either synchronous or gossip. In synchronous mode, at each iteration, all communications take place, then all local computations are done. In gossip mode, at each iteration a random node is selected to send its state; all neighbors having received such message immediately proceed to do a local computation and update local state.
+
+There are python scripts already written for you; the thing you will need to do is to open some C file and modify it, so as to write the suitable functions for the required computations.
+
+You should:
+\begin{itemize}
+\item Follow the instructions in the tutorial to configure your ssh access
+\item Open a  terminal,  do ssh, to arrive at \verb=<username>@grenoble:~= and then change directory:\\
+\verb=cd ~/iot-lab/parts/openlab/appli/education/distributed_algorithm= \\
+This is where the files are sitting, that can be modified by you.\\
+% How to easily update the code during two sessions
+% {\color{blue}
+% NEW: Between your first and second day of lab, some files have been modified, so as to enable the gossip mode.
+% You will need to use the new corrected files. Unfortunately, this means you will lose the modifications which you have already done,
+% so make sure to do this when you are done with your synchronous consensus (or be ready to redo the modifications you had done for it).
+% Recommended procedure:
+% 	\begin{itemize}
+% 	\item Save a copy of your file \verb=computing.c= (so as to keep a copy of your function for state update in synchronous consensus):\\
+%      \verb=cd iot-lab/parts/openlab/appli/education/distributed_algorithm=\\
+%      \verb=cp computing.c computing_save.c=
+%     \item Get the new version of all files (this will over-write the files, erasing your previous version):
+%      either from the same folder as above \\(\verb=iot-lab/parts/openlab/appli/education/distributed_algorithm=) \\or
+%      from \verb=iot-lab/parts/openlab/= type:\\
+%      \verb=git reset --hard HEAD= \\
+%      \verb=git pull=
+%      \end{itemize}
+% Note: do not forget to set again the correct channel for your group, in the file \verb=config.h=, so as to avoid interfering with other groups (your modification from Day1 will be lost in the file over-writing).
+% } %end blue
+
+Use \verb=ls= to see which files are there. The ones you need are the following:
+	\begin{itemize}
+	\item Mainly, you will need to modify \verb=computing.c= to add the functions for computing (more details below)
+	\item In the file \verb=config.h=, you will need to modify:
+		\begin{itemize}
+		\item The number of values (i.e., how many scalars there are in the state of each node). This is the constant \verb=NUM_VALUES= defined quite at the beginning of the file. You will need $1$ when doing scalar consensus, you will need more when doing max-consensus for node-counting. Choose an integer between $1$ and $14$.
+		\item The channel: to avoid interfering with other groups, set the constant \verb=CHANNEL= to different numbers, group $x$ will take channel $10+x$, e.g., group 2 gets channel $12$
+		\item Possibly, you might  need to modify another thing in this file: the transmission power \verb=MIN_RSSI= in case the graph is too sparse (disconnected) or too dense (too many communications, not an interesting example of distributed computing). This signal strength is in dB, and there is a minus sign before the value, so putting a higher value means decreasing strength.
+		\end{itemize}
+	\end{itemize}
+You can open and modify the files directly on the server, without downloading them to your local computer, just use \verb=nano <filename>.c= to open a file in a text editor (to save the file after having modified it, follow instructions to quit and then you will be prompted with the question where you wish to save it)
+\item About the functions in \verb=computing.c=
+	\begin{itemize}
+	\item  \verb=init_value()= does random initialization; this is for a scalar value, then it is called multiple times if \verb=NUM_VALUES=$\ge 2$ (remember, this parameter is set in the file \verb=config.h=)
+	\item \verb=compute_value_from_neighbours= has to be used only in the synchronous mode. It allows a node to compute its new state given: its own old state (\verb=my_value=), its own degree (\verb=my_degree=), and a structure received from neighbors, containing their state and degree. Notice: if you are able to add the contribution of each neighbor incrementally, you can use the already-written code to parse the structure of received values, so that you do not need to worry about that: at iteration $i$, which concerns the neighbor $i$, \verb=neighbour_degree= is the degree of $i$ and \verb=neighbour_value= is the value (the state) of $i$. Also notice: when there is more than one state per node (\verb=NUM_VALUES=$\ge 2$), this function is called many times, one per each state (it operates on a scalar state, not vector).
+	\item \verb=compute_value_from_gossip= has to be used only in gossip mode. It allows a node to compute its new state, given its old state and the received state (received from a neighbor having done the gossip broadcast transmission).
+	\item \verb=compute_final_value= is needed when computing the estimated number of nodes, after the gossip max-consensus algorithm
+	\end{itemize}
+\item Book the nodes for your experiment: follow a similar procedure as in the tutorial,
+to select some nodes from the Grenoble lab; choose m3 nodes; differently from the tutorial,  do not
+associate (yet) any firmware with the nodes.
+Suggestion: take $30$ nodes, and book then for a quite long time, e.g., one or two hours.
+\item Compile from the directory \verb=<username>@grenoble:~/iot-lab/parts/openlab/build.m3$=\\
+    simply type
+    \begin{itemize}
+        \item \verb=make distributed_algorithm=
+    \end{itemize}
+\item After having compiled, you need to flash your executable file to all nodes.
+    From the same directory \verb=<username>@grenoble:~/iot-lab/parts/openlab/build.m3$= run
+    \begin{itemize}
+        \item \verb=node-cli --update bin/distributed_algorithm.elf=
+    \end{itemize}
+
+\item Run your experiment: in a  terminal where you are at \\
+\verb=<username>@grenoble:~/iot-lab/parts/openlab/appli/iotlab_tests/distributed_algorithm/= \\
+Type:
+	\begin{itemize}
+	\item \verb=mkdir ~/ex_1/= (create a folder for your results, give it your favorite name)
+	%\item \verb=./management_script.py --help= (to see the options)
+	\item \verb=./management_script.py -n 50 -o ~/ex_1/results= \\
+	The option \verb=-n= gives the number of iterations, the option \verb=-o= describes the folder and filename for the results files (only one filename, from which the various files will be named according a specified rule; the suggestion is to change folder name only)\\
+	The option \verb=-a= chooses the algorithm to use, by default \verb=syncronous= is used. \verb=-a gossip= tells to use gossip mode; \verb=-a num_nodes= says to use gossip mode and to make a calculation at the end (to be used to compute the number of nodes).
+	\end{itemize}
+\item Download the results: open another terminal, on which you are not going to do ssh, just stay on your home. Type \\
+         \verb=scp -r <username>@grenoble.iot-lab.info:~/ex_1/ ./=\\
+where \verb=ex_1=  needs to be replaced  by the suitable name you had chosen for your results folder while launching the experiment, with the option \verb=-o ~/ex_1/results=
+\item The results are the following:
+    \begin{itemize}
+        \item There is a png file where the graph is drawn (this is the graph at initialization step, but it is almost invariant in time).
+        \item Then there is, for each node, a .csv file, with a first column indicating the iteration number, and next columns containing the value(s) of the state(s) at such time; the number of such columns is determined by \verb=NUM_VALUES= (in file \verb=config.c=), while the number of iterations is chosen with the option \verb=-n= when running the experiment.
+                You can either use these individual files (one per node), or use the file \verb=results_all.csv= where results from all nodes are collected: this one has a first column with the node label, then a column with the iteration number, and then next columns containing the value(s) of the state(s) of such node at such iteration.
+        \item In case you are running with option \verb=-a num_nodes=, then additional output files are produced, containing the estimated number of nodes. You can just look at file \verb=results_final_all.csv= where on the first column there is the node label and on second column there is the estimated number of nodes computed there; there are also individual files, one per node, with just the computed estimate at such a node, but you can ignore them.
+    \end{itemize}
+\end{itemize}
+
+
+
+\section{Synchronous consensus}
+You are given a setup where communications are synchronized (at each iteration, all communications take place, then all local computations are done) and follow a static graph.
+You will implement some consensus algorithm (as described in class and in the tutorial \cite{consensus-tutorial}).
+
+
+\subsection{Synchronous Metropolis LTI average consensus}
+\textbf{Algorithm to be implemented:}
+Initialize $x(0)$ with some values (the goal is to compute the average of such initial values). Run linear consensus algorithm $x(k+1) = P x(t)$ where the matrix $P$ is a doubly-stochastic matrix consistent with the given communication graph; to construct a $P$ satisfying these requirements, use the Metropolis-Hastings weights. \\
+Suggestion: use $30$ nodes and $100$ iterations (or better, first run once with very few iterations, just to check the graph construction works correctly, then run again with $100$ iterations)\\
+
+As a reminder, the Metropolis-Hastings weights are defined as follows:
+denoting with $d_i$ the number of neighbors of $i$ and with $\mc N_i$ the set of such neighbors,
+\[ P_{ij} =
+\begin{cases}
+\frac{1}{1+\max\{d_i, d_j \}} & \text{if $j \in \mc N_i$,}\\
+1-\sum_{k \in \mc N_i} P_{ik} & \text{if $j = i$,}\\
+0							  & \text{otherwise}.
+\end{cases}
+\]
+Notice that the state-update $x_i(k+1) = \sum_j P_{ij} x_j(k)$ with the above-defined weights can be equivalently done as follows:
+\[ x_i(k+1) = x_i + \sum_{j \in \mc N_i} \frac{1}{1+\max\{d_i, d_j \}} (x_j - x_i) \,.\]
+
+\textbf{Results analysis:}
+\begin{itemize}
+\item Plot the trajectories of the states of all nodes: do they converge? if so, do they converge to a common value, and is this value in accordance with theoretical prediction (looking at the initial values in $x(0)$)?
+\item Look at the graph, and check if it is undirected (all edges bi-directional) and connected. Also check if the graph seems to be static, by looking e.g. at the degrees of some nodes (degrees are transmitted at each time, and they are supposed to be time-invariant). Explain why there is no problem about aperiodicity.
+Explain the above-observed convergence to average consensus (of lack thereof) with these checks being satisfied or not. Hint: use results from Perron-Frobenius theory (or equivalently from Markov Chains theory), about convergence of powers of stochastic matrices.
+\end{itemize}
+
+\subsection{More synchronized LTI consensus algorithms, if time permits}
+If there is some time left, play around with linear synchronous consensus, by using different matrix, and do the same results analysis as above, so as to compare the final values and the rapidity of convergence. Examples of matrix:
+\begin{itemize}
+\item Simple random walk: $P = (I+D)^{-1} (I+A)$, where $A$ is the adjacency matrix (of the graph without self-loops), and $D$ the diagonal matrix of in-degrees.
+\item Discretized Laplacian:  $P = I - \alpha L$, for some $\alpha \in (0,\frac{1}{d_{\max}})$, $d_{\max}$ being the maximum of the nodes' degrees (so that diagonal entries of $P$ are ensured to be positive), and where $L=D-A$ is the Laplacian of the graph.
+\end{itemize}
+Hint: write down the entry-wise version of the equation $x(k+1) = P x(k)$ with the above-defined choices of $P$.
+
+\section{Broadcast gossip}
+You are given a setup where at each iteration one sensor (picked at random, according to independent uniform r.v.s) broadcasts its value to all its neighbors; the neighbors update their state using the received value, while all other sensors (including the one having transmitted) keep their previous state. The graph describing the neighbors is static.\\
+
+Comments:
+\begin{itemize}
+\item Differently from the synchronous case, here only one sensor communicates at each iteration. Hence it is natural that convergence takes much longer number of iterations. What would be a re-scaling of the time axis to have a fair comparison?
+\item This broadcast-gossip setup, where at each iteration one sensor at random transmits (the sensor being selected with uniform probability on the set of all sensors, independently from past selections), is simulated in a way that involves a central scheduler. However, this same probabilistic setup can be obtained in a fully local way, without any centralized scheduler nor time-synchronization algorithm, by the use of independent local randomized clocks. Give a short description of the `Poisson clock' gossip setup, after reading the paragraph `Asynchronous time model' in Sect.~I-A of the paper \cite{gossip-poisson}.
+\end{itemize}
+
+
+\subsection{Broadcast-gossip consensus (averaging or maximizing)}
+
+When a sensor $i$ broadcasts its value, each of its neighbors updates its state, say neighbor $j$ computes an updated state $x_j(k+1)$ using the received $x_i(k)$ and the local value $x_j(k)$. Consider the following two update rules:
+\begin{itemize}
+\item[averaging] for some fixed $\alpha \in (0,1)$, $x_j(k+1) = (1- \alpha) x_j(k) + \alpha x_i(k) $, or, equivalently,
+$x_j(k+1) = x_j(k) + \alpha (x_i(k)-x_j(k)) $;
+\item[maximizing] $x_j(k+1) = \max\{x_i(k), x_j(k)\}$.
+\end{itemize}
+
+First, consider the averaging rule (fix a same value $\alpha$ for all nodes, although this is not a crucial point).
+
+\textbf{Algorithm to be implemented:}\\
+Initialize $x(0)$ with some values (the goal is to compute the average of such initial values).
+Run broadcast gossip with the above-described averaging update.\\
+Suggestion: use $30$ nodes and $5000$ iterations, and $\alpha = \frac{1}{2}$.
+
+\textbf{Results analysis:}
+\begin{itemize}
+\item Plot the trajectories $x_i(k)$, for all nodes $i$. Do they converge? if so, do they converge to a common value, and what is this common value?
+\item Look at the graph, and check if it is undirected and connected; also check if it seems to be static (e.g. if the degrees of some nodes remain constant)
+\item Compare the obtained results with theory.
+\end{itemize}
+
+Comments about the relevant theoretical results:
+\begin{itemize}
+\item
+The state update is $x(k+1) = P(k) x(k)$, with $P(k)$ a realization of a random variable. $P(k)$ are i.i.d., uniformly extracted in a finite set of matrices $P^{(1)}, \dots, P^{(n)}$,  where a matrix $P^{(i)}$ corresponds to a node $i$ being extracted and the averaging update being done by $i$'s neighbors. Write explicitly the entries of $P^{(i)}$ for a given $i$ (already done in class).
+\item
+For given initial values $x(0)$, the trajectories of $x(k)$ will be realizations of a random variable, depending on the random sequence in which nodes are activated to communicate. The expected value $\bar x(k) := \mathbb E x(k)$ will have the dynamics $\bar x(k+1) = \bar P \bar x(k)$, where $\bar P := \mathbb E P(k)$ (the expected value is the same for all $k$, since $P(k)$' s are identically distributed).
+Compute $\bar P$ (hint: $\bar P = \sum_{i=1}^n \frac{1}{n} P^{(i)}$);
+try to find a neat expression for $\bar P$, involving the Adjacency or the Laplacian matrix of the graph, and of course also the parameter $\alpha$.
+\item Theory about the expected trajectory $\bar x(k)$.
+Notice that $\bar P$ is a weighted adjacency matrix of the graph describing neighbors; if the graph is rooted (contains a rooted spanning tree), theory predicts convergence of all entries $\bar x(k)$ to a consensus value $\bar \pi^T x(0)$, where  $\bar \pi^T$ is the left dominant eigenvector of $\bar P$, namely $\bar \pi^T \bar P = \pi^T$ and $\sum_i \bar \pi_i = 1$. Look at $\bar P$: what can you say about $\bar \pi^T$? What can you say about the consensus value, in the case where the graph is undirected and connected?
+\item Theory about the random trajectory $x(k)$.
+	\begin{itemize}
+	\item The fact that the expected value $\bar x(k)$ converges to consensus does not imply that the random trajectories $x(k)$ will converge. It actually happens that random trajectories do converge with high probability to a consensus (i.e., a common value) (see theorem below), but this value needs not to be the average of initial values.
+	About convergence of random trajectories, the following theorem holds:\\
+	\textit{Theorem~1 (\cite{gossip-converg-as}, Coroll.~3.2})\\
+	Assume that:
+		\begin{itemize}
+		\item For all node $i$, $P_{ii}(k)>0$ almost surely,
+		\item the graph associated with $\bar P$ is strongly connected.
+		\end{itemize}
+	Then, $x(k)$ achieves probabilistic consensus, i.e.:
+		\begin{itemize}
+		\item If the initial condition is already a consensus $x(0) = a \mathbf 1$ for some scalar $a$, then
+		$x(k) = a \mathbf 1$ for all k;
+		\item given any initial condition $x(0)$, there exists a scalar random variable $x_{\infty}$ (depending on the initial condition), such that $x(k)$ converges almost surely to $x_{\infty} \mathbf 1$.
+		\end{itemize}
+	\hfill $\square$ \\
+	Verify that the assumptions of this theorem are satisfied by the broadcast gossip consensus that we are considering.
+	 \item
+	 Theorem~1 guarantees almost sure convergence to a common consensus value. However, in general the consensus value $x_{\infty}$ is a random variable: for given initial values, it can vary depending on the random sequence $P(k)$. For the broadcast gossip averaging algorithm, if the graph is undirected, in expectation we have $\bar P$ which is doubly-stochastic, so that the expectation $\bar x(k)$ will converge to average consensus, but each random realization $x(k)$ needs not to do so. The following theorem guarantees that the error between the random final value $x_{\infty}$ and the correct expected final value $\frac{1}{n}\sum_i x_i(0)$ cannot be too bad, there is an ensured upper bound for it, described below \textit{(read it, for your information, but you will not need to put it in the report)}. \\
+	 Denote by $\bar x(k) :=  \mathbb E x(k)$ the expectation of the state, and denote by $x_{\text{ave}}(k) := \frac{1}{n}\sum_i x_i(k)$ the scalar random value obtained as the average of the states $x_i(k)$ at a given time $k$; notice that $x_{\text{ave}}(0)$ is not random, and is the desired average of the initial values.
+	 Define $V(0) = \frac{1}{n} \sum_i (x_i(0) - x_{\text{ave}}(0))^2 $; this is a measure of dispersion of the initial values (it is natural to expect that the smaller $V(0)$ is, the easier it is to go to average consensus, since initial values are already near to it). Define $\gamma:= \frac{\alpha}{1-\alpha} d_{\max}$,
+	 where $\alpha$ is the parameter used in the averaging broadcast gossip update and $d_{\max}$ is the maximum of the out-degrees of all nodes (out-degree being the number of neighbors to which a node can broadcast). \\
+	\textit{Theorem~2 (\cite{gossip-small-error}, Theorem~3 and Coroll.~8)}\\
+For the averaging broadcast gossip algorithm and with the above definitions, the following bound holds true:
+\[ \mathbb E [ (x_{\text{ave}}(k) - x_{\text{ave}}(0))^2 ] \le
+ \frac{\gamma}{n} V(0)  \, .\]
+If the graph associated with $\bar P$ is strongly connected, then Theorem~1 ensures that
+$x(k)$ converges almost surely to $x_{\infty} \mathbf 1$ for some random variable $x_{\infty}$ and $\bar x(k)$ converges to $x_{\text{ave}}(0) \mathbf 1$;  the random variable $x_{\infty}$ satisfies the following bound:
+\[ \mathbb E [ (x_{\infty} - x_{\text{ave}}(0))^2 ] \le
+\frac{\gamma}{n} V(0)\,. \vspace{-2mm}\]
+\hfill $\square$
+
+
+	\end{itemize}
+\end{itemize}
+
+
+\subsection{Broadcast-gossip node-counting algorithm}
+
+Consider the maximizing rule: provided that the random activation of nodes activates, at some times increasingly ordered but not necessarily contiguous, all paths from the node having the maximum to any other node (and this happens almost surely, if the graph is strongly connected), this algorithm clearly allows each node to compute the maximum of the initial values. We will use this algorithm as a constituent block for another algorithm.\\
+
+Reminder about node-counting algorithm (as described in class, also see the paper \cite{node-counting} where this technique was proposed).
+\begin{itemize}
+\item Maximum Likelihood (ML) estimation. You are given a random variable $Z$, whose pdf
+$f_Z(z;\theta)$ is parametrized by $\theta$ (this means you know which shape the density function has, but you do not know one parameter; for example, you know it is Gaussian with zero mean but you do not know the variance). You can look at some samples, i.e., at some values $z^{(1)}, \dots, z^{(M)}$ obtained by  i.i.d.~realizations of $Z$. From these values you want to infer $\theta$. Consider the joint pdf of these $M$ i.i.d. realizations of $Z$: due to independence, this is the product. The likelihood function is such a joint pdf, which is still parametrized by $\theta$: define
+\[ \ell(z^{(1)}, \dots, z^{(M)}; \theta) = \prod_{m=1}^M f_Z(z^{(m)}; \theta) \,. \]
+The idea is that if you knew $\theta$ this would describe the probability of $M$ i.i.d. samples of $Z$ taking some values $z^{(1)}, \dots, z^{(M)}$; conversely, now you see from an experiment the values $z^{(1)}, \dots, z^{(M)}$, and you try to guess which was $\theta$, by taking $\theta$ that maximizes the likelihood of the observed $z^{(1)}, \dots, z^{(M)}$:
+\[ \hat \theta_{\mathrm{ML}} := \argmax_{\theta} \ell(z^{(1)}, \dots, z^{(M)}; \theta) \,. \]
+Since the natural logarithm is monotone increasing, equivalently one can consider
+\[ \hat \theta_{\mathrm{ML}} := \argmax_{\theta} \log (\ell(z^{(1)}, \dots, z^{(M)}; \theta))
+= \argmax_{\theta} \sum_{m} \log (f_Z(z^{(m)}; \theta)) \,.\]
+\item ML estimation of the number of nodes (introduced in \cite{node-counting}).
+Consider a r.v.~$Z$ defined by
+\[Z = \max_{i=1, \dots, n} X_i \qquad X_i \text{ i.i.d.}~\mathcal U \, ,\]
+i.e., $Z$ is the maximum of $n$ independent random variables $X_1$, \dots $X_n$ each uniform in the interval $[0,1]$.
+The pdf of $Z$ is the following:
+\[ f_Z(z;n) = n z^{n-1} \,.\]
+We want to infer the parameter $n$ by maximum likelihood, from $M$ samples of $Z$:
+the likelihood function is
+\[ \ell(z^{(1)}, \dots, z^{(M)}; n) = \prod_{m=1}^M f_Z(z^{(m)}; n) = n^M \prod_{m=1}^M (z^{(m)})^{n-1} \,, \]
+so that
+\[ \hat n_{\mathrm{ML}} = \argmax_n \log(\ell(z^{(1)}, \dots, z^{(M)}; n))
+= \argmax_n [ M \log(n) +(n-1) \sum_{m=1}^M \log(z^{(m)}) ] \,.\]
+If you allow your estimate $\hat n_{\mathrm{ML}} $ to be any real number, the maximization problem
+can be solved by simple calculus techniques (taking derivative), obtaining the following explicit expression
+\[\hat n_{\mathrm{ML}} = \frac{M}{-\sum_{m=1}^M \log(z^{(m)})} \,.\]
+If you take the maximization only over natural numbers (since $n$ is known to be natural in the definition of $Z$), then you get
+\[ \hat n_{\mathrm{ML}} = \left \lfloor \frac{M}{-\sum_{m=1}^M \log(z^{(m)})} \right \rfloor  \]
+where $\lfloor \cdot \rfloor$ is the floor function, which rounds to the nearest integer from below.
+
+The quality of the ML estimate $\hat n_{\mathrm{ML}} = \frac{M}{-\sum_{m=1}^M \log(z^{(m)})}$ is described in
+\cite{node-counting}, Eq.~s(9)--(10):
+	\begin{itemize}
+	\item $\mathbb E \hat n_{\mathrm{ML}} = \frac{M}{M-1} n $; notice that if $M\to \infty$ (large number of 		samples) this estimator becomes asymptotically unbiased ($\mathbb E \hat n_{\mathrm{ML}} \to n$);
+	\item $\mathbb E [ (\hat n_{\mathrm{ML}} -n)^2] = n^2 \frac{M+2}{(M-1)(M-2) } $.
+	\end{itemize}
+\item How can we use this estimate of $n$ from $Z = \max_{i=1,\dots,n} X_i$  for distributed node-counting?
+Let $n$ be the number of nodes. Each node $i$, locally, generates $M$ i.i.d samples $x_i^{(1)}, \dots, x_i^{(M)}$ uniform in the interval $[0,1]$. For $m=1,\dots,M$ define $z^{(m)} = \max_{i=1,\dots,n} x_i^{(m)}$. This makes $z^{(1)}, \dots, z^{(M)}$ be independent realizations of $Z$, from which $n$ can be inferred with the above-described ML technique. The maxima $z^{(1)}, \dots, z^{(M)}$ can be obtained by running in parallel $M$ distributed algorithms for maximization, e.g., by using the broadcast-gossip maximizing rule.
+\end{itemize}
+
+\textbf{Algorithm to be implemented:}
+\begin{itemize}
+\item At each node $i$, initialize $M$ variables (choose $M=14$) $x_i^{(1)}(0) =x_i^{(1)}, \dots, x_i^{(M)}(0) = x_i^{(M)}$ with
+$x_i^{(1)}, \dots, x_i^{(M)}$ i.i.d. random variables, uniform in the interval $(0,1)$
+\item Run, in parallel, $M$ iterations of the broadcast gossip maximization algorithm
+\item At the end (when supposedly each node has $M$ values
+$ x_i^{(1)}(k_{\text{end}})= z^{(1)}, \dots,x_i^{(M)}(k_{\text{end}})= z^{(M)}$, the above-defined maxima), let each node compute the estimate $\hat{n}_{\text{ML}} = \left \lfloor \frac{M}{- \sum_{m=1}^M \log z^{(m)}}\right \rfloor$.
+\end{itemize}
+Suggestion: use $30$ nodes and $1000$ iterations.\\
+
+\textbf{Results analysis:}
+\begin{itemize}
+\item Plot the trajectories $x_i(k)$, for all nodes $i$. Do they converge to the desired maxima?
+\item Check connectivity of the graph and explain the convergence or lack thereof; adjust the number of iterations if needed.
+\item Look at the estimates $\hat{n}_{\text{ML}}$ and compare them with the true $n$ (if the graph is not connected, do so separately per each component).
+\item With the same file of results for the maximization, try computing $\hat{n}_{\text{ML}}$ using a smaller $M$ (disregard the $x_i^{(m)}$'s for some values of $m$), and comment on how the quality depends on $M$
+\item Time permitting, repeat the experiment more times, and study statistical properties of $\hat{n}_{\text{ML}}$: find sample average and variance, and compare with theoretical ones.
+\item Time permitting, play around with a few different experiments with smaller or larger numbers of nodes.
+\end{itemize}
+
+
+\begin{thebibliography}{99}
+
+\bibitem{consensus-tutorial}
+F. Garin and L. Schenato, A survey on distributed estimation and control applications using linear consensus algorithms, in {\it Networked Control Systems}, A. Bemporad, M. Heemels, and M. Johansson eds, Springer LNCIS, vol.~406, Chapter~3, pp.~75--107, Springer, 2011, Available on-line: \url{http://necs.inrialpes.fr/people/garin/WIDEbook_GarinSchenato.pdf}
+
+
+\bibitem{gossip-poisson}
+S. Boyd, A. Ghosh, B. Prabhakar, and D. Shah, Randomized gossip algorithms, {\it IEEE Trans.\ on Information Theory}, vol.~52, no.~6, 2006, pp.~2508--2530, Available on-line: \url{http://web.mit.edu/devavrat/www/rand-gossip.pdf}
+
+
+\bibitem{gossip-converg-as}
+F. Fagnani and S. Zampieri, Randomized consensus algorithms over large scale networks,
+{\it IEEE Journal on Selected Areas in Communications}, vol.~26, no.~4, 2008, pp.~634-–649, Available on-line:
+\url{http://calvino.polito.it/~fagnani/coordincontrol/Random%20consensus.pdf}
+
+\bibitem{gossip-small-error}
+P. Frasca and J. M. Hendrickx, On the mean square error of randomized averaging algorithms, {\it Automatica}, vol.~49, no.~8, 2013, pp.~2496--2501, Available on-line: \url{http://arxiv.org/pdf/1111.4572v1.pdf}
+
+\bibitem{node-counting}
+D. Varagnolo, G. Pillonetto, and L. Schenato, Distributed cardinality estimation in anonymous networks,
+{\it  IEEE Trans.\ on Automatic Control},  vol. 59, no. 3, 2014, pp.~645--659, Available on-line:
+\url{http://automatica.dei.unipd.it/tl_files/utenti/lucaschenato/Papers/Journal/TAC14_Distributed_cardinality_estimation}
+
+
+\end{thebibliography}
+
+
+
+
+\end{document}
